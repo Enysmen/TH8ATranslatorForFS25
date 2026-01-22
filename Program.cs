@@ -18,7 +18,7 @@ namespace TH8ATranslatorFS25AxesCal
     class Th8State
     {
         public Th8Mode Mode { get; init; }
-        public int GearNumber { get; init; } // 1..7, 0 = нет передачи
+        public int GearNumber { get; init; } // 1..7, 0 = no transmission
         public bool IsReverse { get; init; } // R
         public bool IsNeutral { get; init; }
         public bool SeqUp { get; init; }
@@ -31,8 +31,8 @@ namespace TH8ATranslatorFS25AxesCal
         private readonly DirectInput _di;
         private Joystick? _joystick;
 
-        // Индексы кнопок — это предположение:
-        // 0..6 = передачи 1..7, 7 = R, 8 = Seq+, 9 = Seq-
+        // Button indexes are a guess:
+        //0..6 = gear 1..7, 7 = R, 8 = Seq+, 9 = Seq-
         private const int GearButtonsCount = 8;
         private const int SeqUpIndex = 9;
         private const int SeqDownIndex = 8;
@@ -45,7 +45,7 @@ namespace TH8ATranslatorFS25AxesCal
         
         private void InitializeJoystick()
         {
-            // Ищем устройство по имени (можете подправить фильтр)
+            // We are looking for a device by name (you can adjust the filter)
             var devices = _di.GetDevices(DeviceClass.GameControl, DeviceEnumerationFlags.AttachedOnly);
 
             var devInfo = devices.FirstOrDefault(d =>
@@ -56,14 +56,14 @@ namespace TH8ATranslatorFS25AxesCal
 
             if (devInfo == null || devInfo.InstanceGuid == Guid.Empty)
             {
-                throw new Exception("TH8A (T500 RS Gear Shift) не найден через DirectInput.");
+                throw new Exception("TH8A (T500 RS Gear Shift) not found via DirectInput.");
             }
 
             _joystick = new Joystick(_di, devInfo.InstanceGuid);
             _joystick.Properties.BufferSize = 32;
             _joystick.Acquire();
 
-            Console.WriteLine($"[TH8] Подключено устройство: '{devInfo.InstanceName}' / '{devInfo.ProductName}'");
+            Console.WriteLine($"[TH8] Device connected: '{devInfo.InstanceName}' / '{devInfo.ProductName}'");
         }
 
         public Th8State ReadState()
@@ -79,7 +79,7 @@ namespace TH8ATranslatorFS25AxesCal
             }
             catch
             {
-                // Попробуем пере-активировать
+                // Let's try to re-activate
                 try
                 {
                     _joystick.Acquire();
@@ -94,7 +94,7 @@ namespace TH8ATranslatorFS25AxesCal
             var state = _joystick.GetCurrentState();
             bool[] buttons = state.Buttons ?? Array.Empty<bool>();
 
-            // 1) Определяем передачу (H-режим)
+            // 1) Determining gear (H-mode)
             int gearNumber = 0;
             bool isReverse = false;
 
@@ -103,7 +103,7 @@ namespace TH8ATranslatorFS25AxesCal
                 if (buttons[i])
                 {
                     gearNumber = i + 1; // 1..8
-                    isReverse = (i == GearButtonsCount - 1); // индекс 7 = R
+                    isReverse = (i == GearButtonsCount - 1); // index 7 = R
                     break;
                 }
             }
@@ -111,7 +111,7 @@ namespace TH8ATranslatorFS25AxesCal
             bool anyGear = gearNumber > 0;
             bool isNeutral = !anyGear;
 
-            // 2) Определяем seq входы
+            // 2) Defining seq inputs
             bool seqUp = buttons.Length > SeqUpIndex && buttons[SeqUpIndex];
             bool seqDown = buttons.Length > SeqDownIndex && buttons[SeqDownIndex];
 
@@ -129,7 +129,7 @@ namespace TH8ATranslatorFS25AxesCal
                 mode = Th8Mode.Unknown;
             }
 
-            // В H-режиме считаем 8-ю передачу как Reverse
+            // In H-mode we consider 8th gear as Reverse
             int gearNumNoR = 0;
             if (anyGear && !isReverse)
             {
@@ -174,61 +174,61 @@ namespace TH8ATranslatorFS25AxesCal
 
             if (!_vjoy.vJoyEnabled())
             {
-                throw new Exception("Драйвер vJoy не включен. Установите vJoy и перезагрузите систему.");
+                throw new Exception("The vJoy driver is not included. Install vJoy and reboot the system.");
             }
 
             var status = _vjoy.GetVJDStatus(_id);
             if (status != VjdStat.VJD_STAT_FREE && status != VjdStat.VJD_STAT_OWN)
             {
-                throw new Exception($"vJoy устройство {_id} сейчас занято или недоступно (статус: {status}).");
+                throw new Exception($"vJoy device {_id} is currently busy or unavailable (status: {status}).");
             }
 
             if (!_vjoy.AcquireVJD(_id))
             {
-                throw new Exception($"Не удалось захватить vJoy устройство ID={_id}.");
+                throw new Exception($"Failed to capture vJoy device ID={_id}.");
             }
 
             long minRaw = 0, maxRaw = 0;
             if (!_vjoy.GetVJDAxisMin(_id, HID_USAGES.HID_USAGE_X, ref minRaw) ||
                 !_vjoy.GetVJDAxisMax(_id, HID_USAGES.HID_USAGE_X, ref maxRaw))
             {
-                throw new Exception("Ось X на vJoy-устройстве не доступна. Проверьте конфигурацию vJoy.");
+                throw new Exception("The X axis on the vJoy device is not available. Check vJoy configuration.");
             }
 
-            // Преобразуем в int для внутреннего использования
+            //Convert to int for internal use
             _axisMin = (int)minRaw;
             _axisMax = (int)maxRaw;
             _axisCenter = (_axisMin + _axisMax) / 2;
             _lastAxisValue = _axisCenter;
 
-            // Строим карту значений оси для передач 1..7 и R(=8)
+            // We build a map of axis values ​​for gears 1..7 and R(=8)
             _gearToAxis = BuildGearAxisMap();
 
-            // Ставим ось в нейтраль
+            // Put the axle in neutral
             SetAxis(_axisCenter);
 
-            Console.WriteLine($"[vJoy] Устройство {_id}: Axis X [{_axisMin}..{_axisMax}], нейтраль = {_axisCenter}");
+            Console.WriteLine($"[vJoy] Device {_id}: Axis X [{_axisMin}..{_axisMax}], neutral = {_axisCenter}");
         }
 
         private Dictionary<int, int> BuildGearAxisMap()
         {
             var map = new Dictionary<int, int>();
 
-            // Логика: R = max, 1 = min, 2..7 равномерно между
-            // Всего 7 передач (1..7) + R (8)
+            // Logic: R = max, 1 = min, 2..7 evenly between
+            //Total 7 gears (1..7) + R (8)
             int gearsWithoutR = 7;
             for (int gear = 1; gear <= gearsWithoutR; gear++)
             {
-                // линейное распределение на [min..max*0.9] например
+                // linear distribution on [min..max*0.9] for example
                 double t = (gear - 1) / (double)(gearsWithoutR - 1); // 0..1
                 int value = _axisMin + (int)((_axisMax - _axisMin) * 0.9 * t);
                 map[gear] = value;
             }
 
-            // R (8) = максимум оси
+            // R (8) = axis maximum
             map[8] = _axisMax;
 
-            Console.WriteLine("[vJoy] Таблица осевых значений для передач (H-режим):");
+            Console.WriteLine("[vJoy] Table of axial values ​​for gears (H-mode):");
             foreach (var kvp in map.OrderBy(k => k.Key))
             {
                 string label = kvp.Key == 8 ? "R" : kvp.Key.ToString();
@@ -251,8 +251,8 @@ namespace TH8ATranslatorFS25AxesCal
         }
 
         /// <summary>
-        /// Установить ось в зависимости от передачи (H-режим).
-        /// gear: 1..7, 8=R, null = нейтраль.
+        /// Set the axis depending on the gear (H-mode).
+        /// gear: 1..7, 8=R, null = neutral.
         /// </summary>
         public void SetGear(int? gear)
         {
@@ -271,7 +271,7 @@ namespace TH8ATranslatorFS25AxesCal
         }
 
         /// <summary>
-        /// Секвентальный режим: Up => максимум, Down => минимум, нейтраль => центр.
+        /// Sequential mode: Up => maximum, Down => minimum, neutral => center.
         /// </summary>
         public void SetSequential(bool up, bool down)
         {
@@ -285,7 +285,7 @@ namespace TH8ATranslatorFS25AxesCal
             }
             else
             {
-                // Оба отпущены или конфликт — центр
+                // Both are released or the conflict is the center
                 SetAxis(_axisCenter);
             }
         }
@@ -298,7 +298,7 @@ namespace TH8ATranslatorFS25AxesCal
             }
             catch
             {
-                // игнор
+                //ignore
             }
 
             _vjoy.RelinquishVJD(_id);
@@ -313,7 +313,7 @@ namespace TH8ATranslatorFS25AxesCal
         static void Main(string[] args)
         {
             Console.OutputEncoding = System.Text.Encoding.UTF8;
-            Console.WriteLine("TH8A → vJoy ось X (H-pattern + Sequential). Нажмите ESC для выхода.\n");
+            Console.WriteLine("TH8A → vJoy X axis (H-pattern + Sequential). Press ESC to exit.\n");
 
             try
             {
@@ -321,12 +321,12 @@ namespace TH8ATranslatorFS25AxesCal
                 using var vj = new VJoyAxisController(1);
 
                 Th8Mode lastMode = Th8Mode.Unknown;
-                int lastGearLogical = -1; // 1..7, 8=R, 0=нейтраль
+                int lastGearLogical = -1; // 1..7, 8=R, 0=neutral
                 bool lastSeqUp = false, lastSeqDown = false;
 
                 while (true)
                 {
-                    // Выход по ESC
+                    //Exit via ESC
                     if (Console.KeyAvailable)
                     {
                         var key = Console.ReadKey(true);
@@ -342,7 +342,7 @@ namespace TH8ATranslatorFS25AxesCal
                         mode = lastMode;
                     }
 
-                    // Определяем H/Sequential
+                    // Defining H/Sequential
                     if (s.Mode == Th8Mode.HPattern)
                     {
                         int logicalGear;
@@ -368,7 +368,7 @@ namespace TH8ATranslatorFS25AxesCal
                                 ? "N"
                                 : logicalGear == 8 ? "R" : logicalGear.ToString();
 
-                            Console.WriteLine($"[H] Передача => {label}");
+                            Console.WriteLine($"[H] Transfer => {label}");
                             lastGearLogical = logicalGear;
                         }
 
@@ -383,7 +383,7 @@ namespace TH8ATranslatorFS25AxesCal
                         {
                             vj.SetSequential(up, down);
                             string label = up ? "+" : down ? "-" : "N";
-                            Console.WriteLine($"[SEQ] Состояние => {label}");
+                            Console.WriteLine($"[SEQ] State => {label}");
                             lastSeqUp = up;
                             lastSeqDown = down;
                         }
@@ -392,11 +392,11 @@ namespace TH8ATranslatorFS25AxesCal
                     }
                     else
                     {
-                        // Неопределённый режим / всё отпущено — нейтраль
+                        // Undefined mode / everything released - neutral
                         if (lastMode != Th8Mode.Unknown)
                         {
                             vj.SetNeutral();
-                            Console.WriteLine("[?] Неопределённый режим / нейтраль.");
+                            Console.WriteLine("[?] Undefined mode / neutral.");
                             lastGearLogical = -1;
                             lastSeqUp = lastSeqDown = false;
                         }
@@ -406,14 +406,14 @@ namespace TH8ATranslatorFS25AxesCal
                     lastMode = mode;
                 }
 
-                Console.WriteLine("Выход. Ось возвращена в нейтраль.");
+                Console.WriteLine("Exit. The axle is returned to neutral.");
             }
             catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("Ошибка: " + ex.Message);
+                Console.WriteLine("Error: " + ex.Message);
                 Console.ResetColor();
-                Console.WriteLine("Нажмите любую клавишу для выхода...");
+                Console.WriteLine("Press any key to exit...");
                 Console.ReadKey(true);
             }
         }
